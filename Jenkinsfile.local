@@ -1,0 +1,113 @@
+pipeline {
+    agent any
+
+    environment {
+        IMAGE_NAME = "secure-task-api"
+        IMAGE_TAG = "v2"
+        FULL_IMAGE = "${IMAGE_NAME}:${IMAGE_TAG}"
+        CONTAINER_NAME = "secure-task-api-v2"
+        APP_PORT = "5000"
+        HOST_PORT = "5000"
+    }
+
+    options {
+        timestamps()
+    }
+
+    stages {
+        stage('Checkout') {
+            steps {
+                checkout scm
+            }
+        }
+
+        stage('Setup Python Environment') {
+            steps {
+                bat '''
+                py -3 -m venv venv
+                venv\\Scripts\\python -m pip install --upgrade pip
+                venv\\Scripts\\python -m pip install -r requirements.txt
+                venv\\Scripts\\python -m pip install flake8 pytest bandit pip-audit
+                '''
+            }
+        }
+
+        stage('Lint - Flake8') {
+            steps {
+                bat '''
+                venv\\Scripts\\python -m flake8 app.py test_app.py
+                '''
+            }
+        }
+
+        stage('Tests - Pytest') {
+            steps {
+                bat '''
+                venv\\Scripts\\python -m pytest -v
+                '''
+            }
+        }
+
+        stage('Security - Bandit') {
+            steps {
+                bat '''
+                venv\\Scripts\\python -m bandit -r app.py -s B104
+                '''
+            }
+        }
+
+        stage('Security - pip-audit') {
+            steps {
+                bat '''
+                venv\\Scripts\\python -m pip_audit
+                '''
+            }
+        }
+
+        stage('Security - Gitleaks') {
+            steps {
+                bat '''
+                gitleaks detect --source . --verbose
+                '''
+            }
+        }
+
+        stage('Build Docker Image') {
+            steps {
+                bat '''
+                docker build -t %FULL_IMAGE% .
+                '''
+            }
+        }
+
+        stage('Security - Trivy') {
+            steps {
+                bat '''
+                trivy image --severity HIGH,CRITICAL %FULL_IMAGE%
+                '''
+            }
+        }
+
+        stage('Deploy Local Container') {
+            steps {
+                bat '''
+                docker rm -f %CONTAINER_NAME% >nul 2>&1
+                docker run -d --name %CONTAINER_NAME% -p %HOST_PORT%:%APP_PORT% %FULL_IMAGE%
+                '''
+            }
+        }
+    }
+
+    post {
+        success {
+            echo 'Pipeline termine avec succes.'
+            echo "Application deployee localement sur le port ${HOST_PORT}."
+        }
+        failure {
+            echo 'Le pipeline a echoue. Verifie les logs Jenkins.'
+        }
+        always {
+            cleanWs()
+        }
+    }
+}
