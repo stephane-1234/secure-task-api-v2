@@ -134,6 +134,7 @@ pipeline {
             echo 'Le pipeline a echoue. Verifie les logs Jenkins.'
         }
         always {
+            archiveArtifacts artifacts: 'zap_report.html', allowEmptyArchive: true
             cleanWs()
         }
     }
