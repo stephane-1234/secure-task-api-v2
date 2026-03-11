@@ -9,6 +9,7 @@ pipeline {
         APP_PORT = "5000"
         HOST_PORT = "5000"
         GITLEAKS_CMD = 'C:\\Users\\asngo\\AppData\\Local\\Microsoft\\WinGet\\Packages\\Gitleaks.Gitleaks_Microsoft.Winget.Source_8wekyb3d8bbwe\\gitleaks.exe'
+        ZAP_CMD = 'C:\\Program Files\\ZAP\\Zed Attack Proxy\\zap.bat'
     }
 
     options {
@@ -94,6 +95,29 @@ pipeline {
                 bat '''
                 docker rm -f %CONTAINER_NAME% >nul 2>&1
                 docker run -d --name %CONTAINER_NAME% -p %HOST_PORT%:%APP_PORT% %FULL_IMAGE%
+                '''
+            }
+        }
+        stage('Wait for Application') {
+            steps {
+                bat '''
+                powershell -Command "Start-Sleep -Seconds 8"
+                '''
+            }
+        }
+
+        stage('Check Application Availability') {
+            steps {
+                bat '''
+                powershell -Command "Invoke-WebRequest -Uri %APP_URL% -UseBasicParsing | Select-Object StatusCode"
+                '''
+            }
+        }
+
+        stage('DAST - OWASP ZAP') {
+            steps {
+                bat '''
+                "%ZAP_CMD%" -cmd -quickurl %APP_URL% -quickout zap_report.html
                 '''
             }
         }
