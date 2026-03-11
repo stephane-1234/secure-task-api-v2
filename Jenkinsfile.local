@@ -8,6 +8,7 @@ pipeline {
         CONTAINER_NAME = "secure-task-api-v2"
         APP_PORT = "5000"
         HOST_PORT = "5000"
+        APP_URL = "http://localhost:${HOST_PORT}"
         GITLEAKS_CMD = 'C:\\Users\\asngo\\AppData\\Local\\Microsoft\\WinGet\\Packages\\Gitleaks.Gitleaks_Microsoft.Winget.Source_8wekyb3d8bbwe\\gitleaks.exe'
         ZAP_CMD = 'C:\\Program Files\\ZAP\\Zed Attack Proxy\\zap.bat'
     }
