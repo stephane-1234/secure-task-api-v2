@@ -10,7 +10,10 @@ tasks = [
 
 @app.route("/")
 def index():
-    return "Bienvenue sur l'API Secure Task! Utilisez /tasks pour voir les tâches.", 200
+    return (
+        "Bienvenue sur l'API Secure Task!"
+        " Utilisez /tasks pour voir les tâches.", 200
+    )
 
 
 @app.route("/health", methods=["GET"])

@@ -5,7 +5,9 @@ def test_index():
     with app.test_client() as client:
         response = client.get("/")
         assert response.status_code == 200
-        assert "Bienvenue sur l'API Secure Task" in response.get_data(as_text=True)
+        assert "Bienvenue sur l'API Secure Task" in response.get_data(
+            as_text=True
+        )
 
 
 def test_health():
