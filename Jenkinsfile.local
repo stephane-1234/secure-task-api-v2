@@ -116,10 +116,11 @@ pipeline {
         }
 
         stage('DAST - OWASP ZAP') {
-            steps {
+           steps {
                 bat '''
-                "%ZAP_CMD%" -cmd -quickurl %APP_URL% -quickout zap_report.html
-                '''
+                cd /d "C:\\Program Files\\ZAP\\Zed Attack Proxy"
+                zap.bat -cmd -quickurl http://localhost:5000 -quickout "C:\\ProgramData\\Jenkins\\.jenkins\\workspace\\secure-task-api-v2\\zap_report.html"
+            '''
             }
         }
     }
