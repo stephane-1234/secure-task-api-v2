@@ -123,6 +123,16 @@ pipeline {
             '''
             }
         }
+        setup(report: 'zap_report.html'){
+            publishHTML(target: [
+                allowMissing: false,
+                alwaysLinkToLastBuild: true,
+                keepAll: true,
+                reportDir: '.',
+                reportFiles: 'zap_report.html',
+                reportName: 'OWASP ZAP Report'
+            ])
+        }
     }
 
     post {
