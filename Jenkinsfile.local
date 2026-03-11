@@ -120,18 +120,8 @@ pipeline {
                 bat '''
                 cd /d "C:\\Program Files\\ZAP\\Zed Attack Proxy"
                 zap.bat -cmd -quickurl http://localhost:5000 -quickout "C:\\ProgramData\\Jenkins\\.jenkins\\workspace\\secure-task-api-v2\\zap_report.html"
-            '''
+             '''
             }
-        }
-        setup(report: 'zap_report.html'){
-            publishHTML(target: [
-                allowMissing: false,
-                alwaysLinkToLastBuild: true,
-                keepAll: true,
-                reportDir: '.',
-                reportFiles: 'zap_report.html',
-                reportName: 'OWASP ZAP Report'
-            ])
         }
     }
 
