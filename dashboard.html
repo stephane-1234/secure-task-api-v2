@@ -1,0 +1,1017 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>DevSecOps AI Analyzer</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;600;700&family=Epilogue:wght@300;400;600;800;900&display=swap');
+
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+
+:root{
+  --bg:#060a0f;
+  --surface:#0d1420;
+  --surface2:#111927;
+  --surface3:#16202e;
+  --border:#1e2d3d;
+  --border2:#243447;
+  --text:#d4e6f8;
+  --muted:#4a6785;
+  --accent:#00d4ff;
+  --accent2:#0099cc;
+  --green:#00e676;
+  --yellow:#ffb300;
+  --red:#ff3d57;
+  --orange:#ff6d00;
+}
+
+body{
+  font-family:'Epilogue',sans-serif;
+  background:var(--bg);
+  color:var(--text);
+  min-height:100vh;
+  overflow-x:hidden;
+}
+
+/* ── GRID BG ── */
+body::before{
+  content:'';
+  position:fixed;inset:0;
+  background-image:
+    linear-gradient(var(--border) 1px, transparent 1px),
+    linear-gradient(90deg, var(--border) 1px, transparent 1px);
+  background-size:48px 48px;
+  opacity:.35;
+  pointer-events:none;
+  z-index:0;
+}
+
+/* ── GLOW ── */
+.glow-orb{
+  position:fixed;
+  border-radius:50%;
+  filter:blur(120px);
+  pointer-events:none;
+  z-index:0;
+}
+.glow-orb.a{width:600px;height:600px;top:-200px;right:-100px;background:radial-gradient(circle,#00d4ff12,transparent 70%)}
+.glow-orb.b{width:400px;height:400px;bottom:-100px;left:-50px;background:radial-gradient(circle,#0066ff0d,transparent 70%)}
+
+/* ── LAYOUT ── */
+.app{position:relative;z-index:1;display:grid;grid-template-columns:260px 1fr;min-height:100vh}
+
+/* ── SIDEBAR ── */
+.sidebar{
+  background:var(--surface);
+  border-right:1px solid var(--border);
+  padding:0;
+  display:flex;flex-direction:column;
+  position:sticky;top:0;height:100vh;overflow:hidden;
+}
+
+.logo{
+  padding:28px 24px 24px;
+  border-bottom:1px solid var(--border);
+}
+.logo-mark{
+  font-family:'JetBrains Mono',monospace;
+  font-size:11px;letter-spacing:3px;text-transform:uppercase;
+  color:var(--accent);margin-bottom:8px;
+}
+.logo-title{font-size:18px;font-weight:900;line-height:1.2;color:var(--text)}
+.logo-title span{color:var(--accent)}
+
+.nav{padding:20px 12px;flex:1;overflow-y:auto}
+.nav-section{font-size:10px;letter-spacing:2px;text-transform:uppercase;color:var(--muted);padding:0 12px;margin-bottom:8px;margin-top:20px}
+.nav-item{
+  display:flex;align-items:center;gap:10px;
+  padding:10px 12px;border-radius:8px;
+  font-size:13px;font-weight:500;cursor:pointer;
+  color:var(--muted);transition:all .2s;
+  border:1px solid transparent;
+}
+.nav-item:hover{background:var(--surface2);color:var(--text)}
+.nav-item.active{background:var(--accent)12;border-color:var(--accent)33;color:var(--accent)}
+.nav-item .icon{font-size:16px;width:20px;text-align:center}
+.nav-badge{
+  margin-left:auto;padding:2px 8px;border-radius:50px;
+  font-size:10px;font-weight:700;background:var(--red)22;color:var(--red);
+}
+
+.sidebar-footer{
+  padding:16px 24px;
+  border-top:1px solid var(--border);
+  font-size:11px;color:var(--muted);
+  font-family:'JetBrains Mono',monospace;
+}
+.status-dot{
+  display:inline-block;width:6px;height:6px;
+  border-radius:50%;background:var(--green);
+  margin-right:6px;animation:pulse 2s infinite;
+}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}
+
+/* ── MAIN ── */
+.main{display:flex;flex-direction:column;min-height:100vh}
+
+/* ── TOPBAR ── */
+.topbar{
+  padding:20px 32px;
+  border-bottom:1px solid var(--border);
+  background:var(--surface)aa;
+  backdrop-filter:blur(12px);
+  position:sticky;top:0;z-index:10;
+  display:flex;align-items:center;justify-content:space-between;
+  gap:16px;
+}
+.topbar-title{font-size:16px;font-weight:700;color:var(--text)}
+.topbar-sub{font-size:12px;color:var(--muted);margin-top:2px;font-family:'JetBrains Mono',monospace}
+.api-key-wrap{display:flex;align-items:center;gap:10px}
+.api-input{
+  background:var(--surface2);border:1px solid var(--border);
+  border-radius:8px;padding:8px 14px;
+  font-family:'JetBrains Mono',monospace;font-size:12px;
+  color:var(--text);width:280px;outline:none;
+  transition:border-color .2s;
+}
+.api-input:focus{border-color:var(--accent)}
+.api-input::placeholder{color:var(--muted)}
+
+/* ── CONTENT ── */
+.content{flex:1;padding:32px;overflow-y:auto}
+
+/* ── UPLOAD ZONE ── */
+.upload-section{margin-bottom:32px}
+.drop-zone{
+  border:2px dashed var(--border2);
+  border-radius:16px;
+  padding:60px 40px;
+  text-align:center;
+  cursor:pointer;
+  transition:all .3s;
+  background:var(--surface2)44;
+  position:relative;
+  overflow:hidden;
+}
+.drop-zone::before{
+  content:'';
+  position:absolute;inset:0;
+  background:radial-gradient(ellipse 60% 40% at 50% 50%, var(--accent)06, transparent);
+  pointer-events:none;
+}
+.drop-zone:hover,.drop-zone.dragover{
+  border-color:var(--accent)66;
+  background:var(--accent)06;
+}
+.drop-icon{font-size:48px;margin-bottom:16px;display:block}
+.drop-title{font-size:20px;font-weight:700;margin-bottom:8px;color:var(--text)}
+.drop-sub{font-size:13px;color:var(--muted);margin-bottom:20px}
+.drop-btn{
+  display:inline-block;padding:10px 24px;
+  background:var(--accent)18;border:1px solid var(--accent)66;
+  border-radius:8px;font-size:13px;font-weight:600;
+  color:var(--accent);cursor:pointer;transition:all .2s;
+}
+.drop-btn:hover{background:var(--accent)30}
+.file-info{
+  margin-top:12px;padding:12px 16px;
+  background:var(--surface2);border:1px solid var(--border);
+  border-radius:8px;display:flex;align-items:center;gap:12px;
+  font-size:13px;
+}
+.file-info .fname{font-weight:600;color:var(--text);font-family:'JetBrains Mono',monospace}
+.file-info .fsize{color:var(--muted)}
+
+.analyze-btn{
+  width:100%;margin-top:16px;padding:16px;
+  background:linear-gradient(135deg, var(--accent), var(--accent2));
+  border:none;border-radius:12px;
+  font-family:'Epilogue',sans-serif;font-size:15px;font-weight:700;
+  color:#000;cursor:pointer;transition:all .3s;
+  position:relative;overflow:hidden;
+}
+.analyze-btn:hover{transform:translateY(-2px);box-shadow:0 8px 32px var(--accent)33}
+.analyze-btn:disabled{opacity:.4;cursor:not-allowed;transform:none}
+.analyze-btn .btn-inner{display:flex;align-items:center;justify-content:center;gap:8px}
+
+/* ── PROGRESS ── */
+.progress-section{
+  display:none;
+  background:var(--surface2);border:1px solid var(--border);
+  border-radius:12px;padding:24px;margin-bottom:24px;
+}
+.progress-section.show{display:block}
+.progress-title{font-size:14px;font-weight:600;margin-bottom:16px;color:var(--text)}
+.progress-steps{display:flex;flex-direction:column;gap:10px}
+.p-step{display:flex;align-items:center;gap:12px;font-size:13px;color:var(--muted);transition:color .3s}
+.p-step.done{color:var(--green)}
+.p-step.active{color:var(--accent)}
+.p-step .p-icon{font-size:16px;width:20px;text-align:center}
+.p-bar-wrap{margin-top:16px;height:4px;background:var(--surface);border-radius:2px;overflow:hidden}
+.p-bar{height:100%;width:0;background:linear-gradient(90deg,var(--accent),var(--accent2));border-radius:2px;transition:width .5s ease}
+
+/* ── REPORT ── */
+#report-section{display:none}
+#report-section.show{display:block}
+
+/* ── STATUS HERO ── */
+.status-hero{
+  border-radius:16px;padding:28px 32px;margin-bottom:24px;
+  display:flex;align-items:center;justify-content:space-between;gap:24px;
+  flex-wrap:wrap;
+  position:relative;overflow:hidden;
+}
+.status-hero.ok{background:linear-gradient(135deg,var(--surface2),#00e67606);border:1px solid var(--green)33}
+.status-hero.warning{background:linear-gradient(135deg,var(--surface2),#ffb30006);border:1px solid var(--yellow)33}
+.status-hero.critical{background:linear-gradient(135deg,var(--surface2),#ff3d5706);border:1px solid var(--red)33}
+
+.sh-left .sh-label{font-size:11px;letter-spacing:2px;text-transform:uppercase;color:var(--muted);margin-bottom:6px}
+.sh-left .sh-name{font-size:22px;font-weight:900;color:var(--text);margin-bottom:8px}
+.sh-left .sh-summary{font-size:13px;color:var(--muted);line-height:1.7;max-width:600px}
+.sh-right{text-align:center;flex-shrink:0}
+.status-badge-big{
+  font-size:15px;font-weight:800;letter-spacing:2px;
+  padding:12px 28px;border-radius:50px;
+}
+.status-badge-big.ok{background:var(--green)18;border:2px solid var(--green)66;color:var(--green)}
+.status-badge-big.warning{background:var(--yellow)18;border:2px solid var(--yellow)66;color:var(--yellow)}
+.status-badge-big.critical{background:var(--red)18;border:2px solid var(--red)66;color:var(--red)}
+
+/* ── KPI GRID ── */
+.kpi-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:12px;margin-bottom:24px}
+.kpi-card{
+  background:var(--surface2);border:1px solid var(--border);
+  border-radius:12px;padding:16px;text-align:center;
+}
+.kpi-val{font-size:32px;font-weight:900;font-family:'JetBrains Mono',monospace;line-height:1}
+.kpi-lbl{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:1px;margin-top:6px}
+
+/* ── RISK ── */
+.risk-card{
+  background:var(--surface2);border:1px solid var(--border);
+  border-radius:12px;padding:20px 24px;margin-bottom:24px;
+  display:flex;align-items:center;gap:20px;
+}
+.risk-lbl{font-size:12px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:1.5px;white-space:nowrap}
+.risk-track{flex:1;height:10px;background:var(--surface);border-radius:5px;overflow:hidden}
+.risk-fill{height:100%;border-radius:5px;transition:width 1.2s ease}
+.risk-num{font-size:24px;font-weight:900;font-family:'JetBrains Mono',monospace;white-space:nowrap}
+
+/* ── TABS ── */
+.tabs{display:flex;gap:0;border-bottom:1px solid var(--border);margin-bottom:24px}
+.tab{
+  padding:12px 20px;font-size:13px;font-weight:600;
+  cursor:pointer;color:var(--muted);
+  border-bottom:2px solid transparent;
+  transition:all .2s;
+}
+.tab:hover{color:var(--text)}
+.tab.active{color:var(--accent);border-bottom-color:var(--accent)}
+
+.tab-panel{display:none}
+.tab-panel.active{display:block}
+
+/* ── STAGE CARD ── */
+.stage-card{
+  background:var(--surface2);border:1px solid var(--border);
+  border-radius:12px;margin-bottom:12px;overflow:hidden;
+  transition:border-color .2s;
+}
+.stage-card:hover{border-color:var(--border2)}
+.stage-head{
+  display:flex;align-items:center;gap:12px;padding:14px 20px;
+  cursor:pointer;user-select:none;
+  background:var(--surface3)44;
+}
+.stage-head .si{font-size:18px}
+.stage-head .sn{font-weight:700;font-size:14px;flex:1}
+.stage-head .ss{
+  padding:3px 12px;border-radius:50px;
+  font-size:10px;font-weight:800;letter-spacing:1px;color:#000;
+}
+.stage-head .ss.OK{background:var(--green)}
+.stage-head .ss.WARNING{background:var(--yellow)}
+.stage-head .ss.CRITICAL{background:var(--red)}
+.stage-head .ss.SKIPPED{background:var(--muted);color:var(--text)}
+.stage-head .toggle{color:var(--muted);transition:transform .3s;font-size:12px}
+.stage-body{display:none;padding:16px 20px;border-top:1px solid var(--border)}
+.stage-body.open{display:block}
+.stage-summary-text{font-size:13px;color:var(--muted);line-height:1.7;margin-bottom:14px}
+
+/* ── ISSUE ── */
+.issue{
+  border-left:3px solid;border-radius:0 8px 8px 0;
+  margin-bottom:10px;padding:14px 16px;
+  background:var(--surface)88;
+}
+.issue-top{display:flex;align-items:center;gap:8px;margin-bottom:8px;flex-wrap:wrap}
+.ibadge{
+  padding:2px 10px;border-radius:50px;
+  font-size:10px;font-weight:800;letter-spacing:1px;color:#000;
+}
+.ititle{font-weight:700;font-size:13px;color:var(--text)}
+.idesc{font-size:12px;color:var(--muted);line-height:1.6;margin-bottom:8px}
+.iloc{font-family:'JetBrains Mono',monospace;font-size:11px;color:#60a5fa;margin-bottom:8px}
+.ifix{
+  background:#010409;border:1px solid var(--border);border-radius:6px;
+  padding:12px;margin:8px 0;overflow-x:auto;
+}
+.ifix code{font-family:'JetBrains Mono',monospace;font-size:11px;color:#79c0ff;white-space:pre}
+.iref a{color:#60a5fa;font-size:11px;text-decoration:none;margin-right:8px}
+.iref a:hover{text-decoration:underline}
+
+/* ── RECOS ── */
+.reco-card{
+  background:var(--surface2);border:1px solid var(--border);
+  border-radius:12px;padding:20px;margin-bottom:12px;
+}
+.reco-top{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:10px;flex-wrap:wrap}
+.reco-title{font-weight:700;font-size:14px;color:var(--text)}
+.effort-badge{
+  padding:3px 12px;border-radius:50px;
+  font-size:10px;font-weight:700;letter-spacing:1px;white-space:nowrap;
+}
+.reco-impact{font-size:13px;color:var(--muted);margin-bottom:10px;line-height:1.6}
+.reco-steps{padding-left:20px;font-size:13px;color:var(--text);line-height:2.2}
+.reco-steps li{padding-left:4px}
+
+/* ── CHECKLIST ── */
+.checklist{list-style:none}
+.cl-item{
+  display:flex;align-items:center;gap:12px;
+  padding:12px 16px;margin-bottom:6px;
+  background:var(--surface2);border:1px solid var(--border);
+  border-radius:8px;font-size:13px;cursor:pointer;
+  transition:all .2s;
+}
+.cl-item:hover{border-color:var(--border2)}
+.cl-item input{accent-color:var(--accent);width:16px;height:16px;cursor:pointer;flex-shrink:0}
+.cl-item.done{opacity:.4}
+.cl-item.done span{text-decoration:line-through}
+
+/* ── EXPORT BAR ── */
+.export-bar{
+  display:flex;gap:10px;flex-wrap:wrap;margin-bottom:24px;
+  padding:16px;background:var(--surface2);border:1px solid var(--border);
+  border-radius:12px;
+}
+.exp-btn{
+  display:flex;align-items:center;gap:7px;
+  padding:8px 16px;border-radius:8px;
+  font-size:12px;font-weight:600;cursor:pointer;
+  border:1px solid var(--border2);
+  background:var(--surface3);color:var(--text);
+  transition:all .2s;font-family:'Epilogue',sans-serif;
+}
+.exp-btn:hover{background:var(--surface2);border-color:var(--accent)66;color:var(--accent)}
+
+/* ── EMPTY STATE ── */
+.empty-state{
+  text-align:center;padding:80px 40px;
+  color:var(--muted);
+}
+.empty-icon{font-size:56px;margin-bottom:16px;display:block;opacity:.4}
+.empty-title{font-size:18px;font-weight:700;color:var(--text);margin-bottom:8px}
+.empty-sub{font-size:13px;line-height:1.7}
+
+/* ── SCROLLBAR ── */
+::-webkit-scrollbar{width:6px;height:6px}
+::-webkit-scrollbar-track{background:transparent}
+::-webkit-scrollbar-thumb{background:var(--border2);border-radius:3px}
+
+/* ── TOAST ── */
+.toast{
+  position:fixed;bottom:24px;right:24px;z-index:999;
+  padding:12px 20px;border-radius:10px;
+  font-size:13px;font-weight:600;
+  background:var(--surface2);border:1px solid var(--border);
+  color:var(--text);
+  animation:slideUp .3s ease;
+  box-shadow:0 8px 32px #000a;
+}
+@keyframes slideUp{from{transform:translateY(20px);opacity:0}to{transform:translateY(0);opacity:1}}
+
+/* ── ANIMATIONS ── */
+@keyframes fadeIn{from{opacity:0;transform:translateY(16px)}to{opacity:1;transform:none}}
+.fade-in{animation:fadeIn .4s ease both}
+
+@media(max-width:768px){
+  .app{grid-template-columns:1fr}
+  .sidebar{display:none}
+}
+</style>
+</head>
+<body>
+
+<div class="glow-orb a"></div>
+<div class="glow-orb b"></div>
+
+<div class="app">
+
+  <!-- ─── SIDEBAR ─── -->
+  <aside class="sidebar">
+    <div class="logo">
+      <div class="logo-mark">DevSecOps</div>
+      <div class="logo-title">AI Pipeline<br><span>Analyzer</span></div>
+    </div>
+    <nav class="nav">
+      <div class="nav-section">Analyse</div>
+      <div class="nav-item active" onclick="scrollTo(0,0)"><span class="icon">🔬</span> Nouveau rapport</div>
+      <div class="nav-section">Rapport</div>
+      <div class="nav-item" id="nav-stages" onclick="activateTab('stages')"><span class="icon">📋</span> Stages <span class="nav-badge" id="badge-issues" style="display:none">0</span></div>
+      <div class="nav-item" id="nav-recos" onclick="activateTab('recos')"><span class="icon">🚀</span> Recommandations</div>
+      <div class="nav-item" id="nav-checklist" onclick="activateTab('checklist')"><span class="icon">✅</span> Checklist dev</div>
+      <div class="nav-section">Export</div>
+      <div class="nav-item" onclick="exportJSON()"><span class="icon">📦</span> JSON</div>
+      <div class="nav-item" onclick="exportHTML()"><span class="icon">🌐</span> HTML</div>
+      <div class="nav-item" onclick="window.print()"><span class="icon">🖨️</span> Imprimer/PDF</div>
+    </nav>
+    <div class="sidebar-footer">
+      <span class="status-dot"></span>Propulsé par Claude AI
+    </div>
+  </aside>
+
+  <!-- ─── MAIN ─── -->
+  <main class="main">
+
+    <!-- Topbar -->
+    <div class="topbar">
+      <div>
+        <div class="topbar-title">Analyseur de Logs CI/CD</div>
+        <div class="topbar-sub">Déposez vos logs Jenkins → rapport IA complet</div>
+      </div>
+      <div class="api-key-wrap">
+        <input type="password" class="api-input" id="apiKey"
+               placeholder="🔑 Clé API Anthropic (sk-ant-...)"
+               title="Votre clé API Anthropic">
+      </div>
+    </div>
+
+    <!-- Content -->
+    <div class="content">
+
+      <!-- Upload -->
+      <div class="upload-section">
+        <div class="drop-zone" id="dropZone">
+          <span class="drop-icon">📂</span>
+          <div class="drop-title">Déposez votre log Jenkins ici</div>
+          <div class="drop-sub">Fichier .log, .txt ou collez directement le contenu<br>Compatible : Flake8, Pytest, Bandit, Trivy, Gitleaks, ZAP</div>
+          <label class="drop-btn" for="fileInput">Parcourir les fichiers</label>
+          <input type="file" id="fileInput" accept=".log,.txt" style="display:none" onchange="handleFile(this.files[0])">
+        </div>
+        <div class="file-info" id="fileInfo" style="display:none">
+          <span>📄</span>
+          <span class="fname" id="fileName"></span>
+          <span class="fsize" id="fileSize"></span>
+          <span style="margin-left:auto;cursor:pointer;color:var(--muted)" onclick="resetFile()">✕</span>
+        </div>
+        <button class="analyze-btn" id="analyzeBtn" onclick="startAnalysis()" disabled>
+          <div class="btn-inner">🤖 Lancer l'analyse IA</div>
+        </button>
+
+        <!-- Paste area -->
+        <details style="margin-top:12px">
+          <summary style="cursor:pointer;font-size:12px;color:var(--muted);padding:8px 0">
+            ↳ Coller le log directement
+          </summary>
+          <textarea id="pasteArea" rows="8"
+            style="width:100%;margin-top:8px;padding:12px;background:var(--surface2);
+                   border:1px solid var(--border);border-radius:8px;
+                   font-family:'JetBrains Mono',monospace;font-size:11px;
+                   color:var(--text);resize:vertical;outline:none;"
+            placeholder="Collez ici le contenu de votre log Jenkins..."
+            oninput="handlePaste(this.value)"></textarea>
+        </details>
+      </div>
+
+      <!-- Progress -->
+      <div class="progress-section" id="progressSection">
+        <div class="progress-title">⚙️ Analyse en cours...</div>
+        <div class="progress-steps">
+          <div class="p-step" id="ps1"><span class="p-icon">📖</span> Lecture et parsing du log</div>
+          <div class="p-step" id="ps2"><span class="p-icon">🔍</span> Extraction des métriques par stage</div>
+          <div class="p-step" id="ps3"><span class="p-icon">🤖</span> Envoi à Claude AI pour analyse complète</div>
+          <div class="p-step" id="ps4"><span class="p-icon">📊</span> Génération du rapport interactif</div>
+        </div>
+        <div class="p-bar-wrap"><div class="p-bar" id="progressBar"></div></div>
+      </div>
+
+      <!-- Report -->
+      <div id="report-section">
+
+        <!-- Status hero -->
+        <div class="status-hero fade-in" id="statusHero">
+          <div class="sh-left">
+            <div class="sh-label">Pipeline analysé</div>
+            <div class="sh-name" id="shName">—</div>
+            <div class="sh-summary" id="shSummary">—</div>
+          </div>
+          <div class="sh-right">
+            <div class="status-badge-big" id="statusBadge">—</div>
+          </div>
+        </div>
+
+        <!-- KPIs -->
+        <div class="kpi-grid fade-in" id="kpiGrid"></div>
+
+        <!-- Risk -->
+        <div class="risk-card fade-in">
+          <span class="risk-lbl">Score de risque</span>
+          <div class="risk-track"><div class="risk-fill" id="riskFill"></div></div>
+          <span class="risk-num" id="riskNum">—</span>
+        </div>
+
+        <!-- Export bar -->
+        <div class="export-bar fade-in">
+          <button class="exp-btn" onclick="exportJSON()">📦 Exporter JSON</button>
+          <button class="exp-btn" onclick="exportHTML()">🌐 Exporter HTML</button>
+          <button class="exp-btn" onclick="window.print()">🖨️ PDF / Imprimer</button>
+          <button class="exp-btn" onclick="copyJSON()">📋 Copier JSON</button>
+        </div>
+
+        <!-- Tabs -->
+        <div class="tabs">
+          <div class="tab active" onclick="activateTab('stages')" id="tab-stages">🔍 Stages <span id="tab-badge" style="background:var(--red)22;color:var(--red);border-radius:50px;padding:1px 8px;font-size:10px;font-weight:800"></span></div>
+          <div class="tab" onclick="activateTab('recos')" id="tab-recos">🚀 Recommandations</div>
+          <div class="tab" onclick="activateTab('checklist')" id="tab-checklist">✅ Checklist développeur</div>
+        </div>
+
+        <!-- Tab: Stages -->
+        <div class="tab-panel active" id="panel-stages"></div>
+
+        <!-- Tab: Recos -->
+        <div class="tab-panel" id="panel-recos"></div>
+
+        <!-- Tab: Checklist -->
+        <div class="tab-panel" id="panel-checklist"></div>
+
+      </div>
+
+      <!-- Empty state initial -->
+      <div class="empty-state" id="emptyState">
+        <span class="empty-icon">🔬</span>
+        <div class="empty-title">Prêt à analyser votre pipeline</div>
+        <div class="empty-sub">
+          Déposez un log Jenkins ci-dessus et entrez votre clé API Anthropic.<br>
+          Le rapport IA complet apparaîtra ici en quelques secondes.
+        </div>
+      </div>
+
+    </div><!-- /content -->
+  </main>
+</div><!-- /app -->
+
+<script>
+// ─────────────────────────────────────────────
+// STATE
+// ─────────────────────────────────────────────
+let logContent = '';
+let currentReport = null;
+let currentSummary = null;
+
+const SEV_COLOR = {CRITICAL:'#ff3d57',HIGH:'#ff6d00',MEDIUM:'#ffb300',LOW:'#2196f3',INFO:'#607d8b'};
+const STATUS_COLOR = {OK:'#00e676',WARNING:'#ffb300',CRITICAL:'#ff3d57',SKIPPED:'#607d8b'};
+const STATUS_ICON = {OK:'✅',WARNING:'⚠️',CRITICAL:'❌',SKIPPED:'⏭️'};
+
+// ─────────────────────────────────────────────
+// FILE HANDLING
+// ─────────────────────────────────────────────
+function handleFile(file){
+  if(!file) return;
+  const reader = new FileReader();
+  reader.onload = e => {
+    logContent = e.target.result;
+    document.getElementById('fileName').textContent = file.name;
+    document.getElementById('fileSize').textContent = formatBytes(file.size);
+    document.getElementById('fileInfo').style.display = 'flex';
+    checkReady();
+  };
+  reader.readAsText(file);
+}
+
+function handlePaste(val){
+  logContent = val;
+  if(val.trim()){
+    document.getElementById('fileInfo').style.display = 'none';
+    checkReady();
+  }
+}
+
+function resetFile(){
+  logContent = '';
+  document.getElementById('fileInfo').style.display = 'none';
+  document.getElementById('fileInput').value = '';
+  checkReady();
+}
+
+function checkReady(){
+  const key = document.getElementById('apiKey').value.trim();
+  document.getElementById('analyzeBtn').disabled = !(logContent.trim() && key);
+}
+document.getElementById('apiKey').addEventListener('input', checkReady);
+
+function formatBytes(b){
+  if(b<1024) return b+'B';
+  if(b<1024*1024) return (b/1024).toFixed(1)+'KB';
+  return (b/1024/1024).toFixed(1)+'MB';
+}
+
+// Drag & drop
+const dz = document.getElementById('dropZone');
+dz.addEventListener('dragover',e=>{e.preventDefault();dz.classList.add('dragover')});
+dz.addEventListener('dragleave',()=>dz.classList.remove('dragover'));
+dz.addEventListener('drop',e=>{
+  e.preventDefault();dz.classList.remove('dragover');
+  if(e.dataTransfer.files[0]) handleFile(e.dataTransfer.files[0]);
+});
+
+// ─────────────────────────────────────────────
+// PARSING LOG
+// ─────────────────────────────────────────────
+function parseStages(log){
+  const STAGES = {
+    checkout:/\(Checkout\)/,lint:/\(Lint - Flake8\)/,tests:/\(Tests - Pytest\)/,
+    bandit:/\(Security - Bandit\)/,pip_audit:/\(Security - pip-audit\)/,
+    gitleaks:/\(Security - Gitleaks\)/,docker_build:/\(Build Docker Image\)/,
+    trivy:/\(Security - Trivy\)/,deploy:/\(Deploy Local Container\)/,
+    zap:/\(DAST - OWASP ZAP\)/
+  };
+  const lines = log.split('\n');
+  let cur = 'global';
+  const stages = {global:[]};
+  lines.forEach(l=>{
+    for(const[n,r] of Object.entries(STAGES)){if(r.test(l)){cur=n;stages[n]=stages[n]||[];break}}
+    stages[cur].push(l);
+  });
+  return Object.fromEntries(Object.entries(stages).map(([k,v])=>[k,v.join('\n')]));
+}
+
+function quickSummary(stages){
+  const s={};
+  const pytest=stages.tests||'';
+  let m;
+  m=pytest.match(/(\d+) passed/);s.pytest_passed=m?+m[1]:0;
+  m=pytest.match(/(\d+) failed/);s.pytest_failed=m?+m[1]:0;
+  const lint=stages.lint||'';
+  s.lint_errors=(lint.match(/\w+\.py:\d+:\d+:/g)||[]).length;
+  const bandit=stages.bandit||'';
+  s.bandit_high=(bandit.match(/Severity: High/g)||[]).length;
+  s.bandit_medium=(bandit.match(/Severity: Medium/g)||[]).length;
+  const trivy=stages.trivy||'';
+  m=trivy.match(/HIGH:\s*(\d+)/);s.trivy_high=m?+m[1]:0;
+  m=trivy.match(/CRITICAL:\s*(\d+)/);s.trivy_critical=m?+m[1]:0;
+  s.cves=[...new Set((trivy.match(/CVE-\d{4}-\d+/g)||[]))];
+  s.pip_vulns=stages.pip_audit&&stages.pip_audit.includes('No known vulnerabilities')?0:1;
+  const git=stages.gitleaks||'';
+  s.secrets_leaked=git.toLowerCase().includes('no leaks found')?0:1;
+  const zap=stages.zap||'';
+  s.zap_alerts=(zap.match(/WARN|FAIL|alert/gi)||[]).length;
+  const fatal=s.pytest_failed>0||s.bandit_high>0||s.trivy_critical>0||s.secrets_leaked>0;
+  const warn=s.trivy_high>0||s.lint_errors>0||s.bandit_medium>0;
+  s.global_status=fatal?'CRITICAL':warn?'WARNING':'OK';
+  return s;
+}
+
+// ─────────────────────────────────────────────
+// CLAUDE API CALL
+// ─────────────────────────────────────────────
+async function callClaude(stages, summary, apiKey){
+  const SYSTEM = `Tu es un expert DevSecOps senior. Analyse les logs de pipeline CI/CD Jenkins et produis un rapport complet et actionnable.
+
+Pour chaque stage, fournis : statut, résumé, problèmes détaillés avec exemples de fix concrets.
+
+Réponds UNIQUEMENT en JSON valide (sans balises markdown) avec cette structure exacte :
+{
+  "pipeline_name": "string",
+  "build_date": "string",
+  "global_status": "OK|WARNING|CRITICAL",
+  "global_summary": "string",
+  "risk_score": 0-100,
+  "stages": [
+    {
+      "name": "string",
+      "status": "OK|WARNING|CRITICAL|SKIPPED",
+      "summary": "string",
+      "issues": [
+        {
+          "title": "string",
+          "severity": "CRITICAL|HIGH|MEDIUM|LOW|INFO",
+          "priority": "P1|P2|P3|P4",
+          "description": "string",
+          "location": "string",
+          "fix_example": "string (code ou commande concrète et applicable)",
+          "references": ["CVE-XXXX-YYYY"]
+        }
+      ],
+      "metrics": {}
+    }
+  ],
+  "recommendations": [
+    {
+      "title": "string",
+      "impact": "string",
+      "effort": "Faible|Moyen|Élevé",
+      "steps": ["string"]
+    }
+  ],
+  "developer_checklist": ["string"]
+}`;
+
+  const parts = [];
+  for(const[name,content] of Object.entries(stages)){
+    if(content.trim()) parts.push(`### STAGE: ${name.toUpperCase()}\n${content.slice(0,2500)}`);
+  }
+
+  const prompt = `Analyse ce pipeline Jenkins CI/CD.
+
+MÉTRIQUES RAPIDES :
+- Tests: ${summary.pytest_passed} passed, ${summary.pytest_failed} failed
+- Lint: ${summary.lint_errors} erreurs Flake8
+- Bandit: ${summary.bandit_high} HIGH, ${summary.bandit_medium} MEDIUM
+- Trivy: ${summary.trivy_high} HIGH, ${summary.trivy_critical} CRITICAL
+- CVEs: ${summary.cves.join(', ')||'aucune'}
+- Secrets leakés: ${summary.secrets_leaked?'⚠️ OUI':'✅ Non'}
+- Pip-audit: ${summary.pip_vulns===0?'✅ Clean':'⚠️ Vulnérabilités'}
+
+LOGS :
+${parts.join('\n\n')}
+
+Génère une analyse complète avec exemples de fix concrets et actionnables pour chaque problème.`;
+
+  const resp = await fetch('https://api.anthropic.com/v1/messages', {
+    method:'POST',
+    headers:{
+      'Content-Type':'application/json',
+      'x-api-key':apiKey,
+      'anthropic-version':'2023-06-01',
+      'anthropic-dangerous-direct-browser-access':'true'
+    },
+    body:JSON.stringify({
+      model:'claude-sonnet-4-20250514',
+      max_tokens:4096,
+      system:SYSTEM,
+      messages:[{role:'user',content:prompt}]
+    })
+  });
+
+  if(!resp.ok){
+    const err = await resp.json().catch(()=>({}));
+    throw new Error(err.error?.message||`API error ${resp.status}`);
+  }
+
+  const data = await resp.json();
+  let raw = data.content[0].text;
+  raw = raw.replace(/```json\s*/g,'').replace(/```\s*/g,'').trim();
+  return JSON.parse(raw);
+}
+
+// ─────────────────────────────────────────────
+// PROGRESS ANIMATION
+// ─────────────────────────────────────────────
+function setStep(n, pct){
+  for(let i=1;i<=4;i++){
+    const el=document.getElementById('ps'+i);
+    el.classList.remove('done','active');
+    if(i<n) el.classList.add('done');
+    else if(i===n) el.classList.add('active');
+  }
+  document.getElementById('progressBar').style.width=pct+'%';
+}
+
+// ─────────────────────────────────────────────
+// MAIN ANALYSIS
+// ─────────────────────────────────────────────
+async function startAnalysis(){
+  const apiKey = document.getElementById('apiKey').value.trim();
+  if(!apiKey||!logContent) return;
+
+  // Reset UI
+  document.getElementById('analyzeBtn').disabled = true;
+  document.getElementById('emptyState').style.display = 'none';
+  document.getElementById('report-section').style.display = 'none';
+  document.getElementById('report-section').classList.remove('show');
+  const prog = document.getElementById('progressSection');
+  prog.classList.add('show');
+
+  try{
+    setStep(1,10);
+    await sleep(300);
+
+    const stages = parseStages(logContent);
+    setStep(2,30);
+    await sleep(300);
+
+    const summary = quickSummary(stages);
+    currentSummary = summary;
+    setStep(3,50);
+
+    const report = await callClaude(stages, summary, apiKey);
+    currentReport = report;
+    setStep(4,85);
+    await sleep(300);
+
+    renderReport(report, summary);
+    setStep(4,100);
+    await sleep(400);
+
+    prog.classList.remove('show');
+    document.getElementById('report-section').style.display = 'block';
+    document.getElementById('report-section').classList.add('show');
+
+  } catch(err){
+    prog.classList.remove('show');
+    showToast('❌ Erreur : '+err.message);
+    document.getElementById('emptyState').style.display = 'block';
+  } finally{
+    document.getElementById('analyzeBtn').disabled = false;
+    checkReady();
+  }
+}
+
+function sleep(ms){ return new Promise(r=>setTimeout(r,ms)); }
+
+// ─────────────────────────────────────────────
+// RENDER REPORT
+// ─────────────────────────────────────────────
+function renderReport(report, summary){
+  const status = report.global_status||'OK';
+  const color = STATUS_COLOR[status]||'#607d8b';
+  const risk = report.risk_score||0;
+
+  // Hero
+  const hero = document.getElementById('statusHero');
+  hero.className = 'status-hero fade-in '+status.toLowerCase();
+  document.getElementById('shName').textContent = report.pipeline_name||'Pipeline CI/CD';
+  document.getElementById('shSummary').textContent = report.global_summary||'';
+  const badge = document.getElementById('statusBadge');
+  badge.textContent = (STATUS_ICON[status]||'')+'  '+status;
+  badge.className = 'status-badge-big '+status.toLowerCase();
+
+  // KPIs
+  const kpis = [
+    {val:summary.pytest_passed, lbl:'Tests ✅', color:'#00e676'},
+    {val:summary.pytest_failed, lbl:'Tests ❌', color:'#ff3d57'},
+    {val:summary.lint_errors, lbl:'Erreurs Lint', color:'#ff6d00'},
+    {val:summary.trivy_high, lbl:'HIGH Trivy', color:'#ff6d00'},
+    {val:summary.trivy_critical, lbl:'CRITICAL Trivy', color:'#ff3d57'},
+    {val:summary.secrets_leaked, lbl:'Secrets leakés', color:summary.secrets_leaked?'#ff3d57':'#00e676'},
+  ];
+  document.getElementById('kpiGrid').innerHTML = kpis.map(k=>
+    `<div class="kpi-card"><div class="kpi-val" style="color:${k.color}">${k.val}</div><div class="kpi-lbl">${k.lbl}</div></div>`
+  ).join('');
+
+  // Risk
+  const riskColor = risk<30?'#00e676':risk<60?'#ffb300':'#ff3d57';
+  document.getElementById('riskFill').style.width = risk+'%';
+  document.getElementById('riskFill').style.background = `linear-gradient(90deg,#00e676,${riskColor})`;
+  document.getElementById('riskNum').style.color = riskColor;
+  document.getElementById('riskNum').textContent = risk+'/100';
+
+  // Count total issues
+  let totalIssues=0;
+  (report.stages||[]).forEach(s=>totalIssues+=s.issues?.length||0);
+  document.getElementById('tab-badge').textContent = totalIssues>0?totalIssues:'';
+  const biBadge = document.getElementById('badge-issues');
+  if(totalIssues>0){biBadge.style.display='';biBadge.textContent=totalIssues;}
+  else biBadge.style.display='none';
+
+  // ── Stages panel
+  const stPanel = document.getElementById('panel-stages');
+  stPanel.innerHTML = (report.stages||[]).map((st,i)=>{
+    const sc = STATUS_COLOR[st.status]||'#607d8b';
+    const issuesHtml = (st.issues||[]).map(issue=>{
+      const sev=issue.severity||'INFO';
+      const prio=issue.priority||'P4';
+      const prioBg={P1:'#ff3d57',P2:'#ff6d00',P3:'#ffb300',P4:'#2196f3'}[prio]||'#607d8b';
+      const fixCode = (issue.fix_example||'').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+      const refs = (issue.references||[]).map(r=>
+        `<a href="https://nvd.nist.gov/vuln/detail/${r}" target="_blank">${r}</a>`
+      ).join(' ');
+      return `<div class="issue" style="border-color:${SEV_COLOR[sev]||'#607d8b'}">
+        <div class="issue-top">
+          <span class="ibadge" style="background:${SEV_COLOR[sev]||'#607d8b'}">${sev}</span>
+          <span class="ibadge" style="background:${prioBg}">${prio}</span>
+          <span class="ititle">${issue.title||''}</span>
+        </div>
+        <div class="idesc">${issue.description||''}</div>
+        ${issue.location?`<div class="iloc">📍 ${issue.location}</div>`:''}
+        ${fixCode?`<div class="ifix"><code>${fixCode}</code></div>`:''}
+        ${refs?`<div class="iref">🔗 ${refs}</div>`:''}
+      </div>`;
+    }).join('');
+
+    const metrics = st.metrics||{};
+    const metricsHtml = Object.keys(metrics).length
+      ? '<div style="display:flex;gap:8px;flex-wrap:wrap;padding:0 20px 12px">'
+        +Object.entries(metrics).map(([k,v])=>
+          `<span style="background:var(--surface3);border:1px solid var(--border);border-radius:50px;padding:4px 12px;font-size:11px;color:var(--muted);font-family:'JetBrains Mono',monospace">${k}: <b>${v}</b></span>`
+        ).join('')+'</div>'
+      : '';
+
+    return `<div class="stage-card">
+      <div class="stage-head" onclick="toggleStage(${i})">
+        <span class="si">${STATUS_ICON[st.status]||'•'}</span>
+        <span class="sn">${st.name||'Stage'}</span>
+        <span class="ss ${st.status||'OK'}">${st.status||'OK'}</span>
+        <span class="toggle" id="toggle-${i}">▼</span>
+      </div>
+      <div class="stage-body ${(st.issues||[]).length?'open':''}" id="body-${i}">
+        <div class="stage-summary-text">${st.summary||''}</div>
+        ${metricsHtml}
+        ${issuesHtml||'<div style="font-size:12px;color:var(--muted);padding:8px">✅ Aucun problème détecté</div>'}
+      </div>
+    </div>`;
+  }).join('') || '<div style="color:var(--muted);font-size:13px">Aucun stage analysé.</div>';
+
+  // ── Recos panel
+  const EFFORT_COLOR = {'Faible':'#00e676','Moyen':'#ffb300','Élevé':'#ff3d57'};
+  document.getElementById('panel-recos').innerHTML = (report.recommendations||[]).map(r=>{
+    const effortC = EFFORT_COLOR[r.effort]||'#607d8b';
+    const steps = (r.steps||[]).map(s=>`<li>${s}</li>`).join('');
+    return `<div class="reco-card">
+      <div class="reco-top">
+        <span class="reco-title">${r.title||''}</span>
+        <span class="effort-badge" style="background:${effortC}22;border:1px solid ${effortC}66;color:${effortC}">Effort: ${r.effort||'?'}</span>
+      </div>
+      <div class="reco-impact">💡 ${r.impact||''}</div>
+      <ol class="reco-steps">${steps}</ol>
+    </div>`;
+  }).join('') || '<div style="color:var(--muted);font-size:13px">Aucune recommandation.</div>';
+
+  // ── Checklist panel
+  document.getElementById('panel-checklist').innerHTML =
+    '<ul class="checklist">'+(report.developer_checklist||[]).map((item,i)=>
+      `<li class="cl-item" id="cli-${i}" onclick="toggleCheck(${i})">
+        <input type="checkbox" id="cb-${i}">
+        <span>${item}</span>
+      </li>`
+    ).join('')+'</ul>';
+}
+
+function toggleStage(i){
+  const body=document.getElementById('body-'+i);
+  const tog=document.getElementById('toggle-'+i);
+  body.classList.toggle('open');
+  tog.textContent=body.classList.contains('open')?'▲':'▼';
+}
+
+function toggleCheck(i){
+  const cb=document.getElementById('cb-'+i);
+  const li=document.getElementById('cli-'+i);
+  cb.checked=!cb.checked;
+  li.classList.toggle('done',cb.checked);
+}
+
+// ─────────────────────────────────────────────
+// TABS
+// ─────────────────────────────────────────────
+function activateTab(name){
+  ['stages','recos','checklist'].forEach(t=>{
+    document.getElementById('tab-'+t).classList.toggle('active',t===name);
+    document.getElementById('panel-'+t).classList.toggle('active',t===name);
+    const navEl=document.getElementById('nav-'+t);
+    if(navEl) navEl.classList.toggle('active',t===name);
+  });
+}
+
+// ─────────────────────────────────────────────
+// EXPORT
+// ─────────────────────────────────────────────
+function exportJSON(){
+  if(!currentReport){showToast('⚠️ Aucun rapport à exporter');return;}
+  const data = {...currentReport, raw_metrics:currentSummary, exported_at:new Date().toISOString()};
+  download(JSON.stringify(data,null,2),'report_cicd.json','application/json');
+}
+
+function exportHTML(){
+  if(!currentReport){showToast('⚠️ Aucun rapport à exporter');return;}
+  download(document.documentElement.outerHTML,'report_cicd.html','text/html');
+}
+
+function copyJSON(){
+  if(!currentReport){showToast('⚠️ Aucun rapport à copier');return;}
+  navigator.clipboard.writeText(JSON.stringify(currentReport,null,2))
+    .then(()=>showToast('✅ JSON copié dans le presse-papier'))
+    .catch(()=>showToast('❌ Erreur lors de la copie'));
+}
+
+function download(content, filename, mime){
+  const a=document.createElement('a');
+  a.href=URL.createObjectURL(new Blob([content],{type:mime}));
+  a.download=filename;a.click();
+  showToast(`✅ ${filename} téléchargé`);
+}
+
+// ─────────────────────────────────────────────
+// TOAST
+// ─────────────────────────────────────────────
+function showToast(msg){
+  const t=document.createElement('div');
+  t.className='toast';t.textContent=msg;
+  document.body.appendChild(t);
+  setTimeout(()=>t.remove(),3500);
+}
+</script>
+</body>
+</html>

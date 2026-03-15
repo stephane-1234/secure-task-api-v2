@@ -1,29 +1,42 @@
 pipeline {
     agent any
-
+ 
     environment {
-        IMAGE_NAME = "secure-task-api"
-        IMAGE_TAG = "v2"
-        FULL_IMAGE = "${IMAGE_NAME}:${IMAGE_TAG}"
+        IMAGE_NAME     = "secure-task-api"
+        IMAGE_TAG      = "v2"
+        FULL_IMAGE     = "${IMAGE_NAME}:${IMAGE_TAG}"
         CONTAINER_NAME = "secure-task-api-v2"
-        APP_PORT = "5000"
-        HOST_PORT = "5000"
-        APP_URL = "http://localhost:${HOST_PORT}"
-        GITLEAKS_CMD = 'C:\\Users\\asngo\\AppData\\Local\\Microsoft\\WinGet\\Packages\\Gitleaks.Gitleaks_Microsoft.Winget.Source_8wekyb3d8bbwe\\gitleaks.exe'
-        ZAP_CMD = 'C:\\Program Files\\ZAP\\Zed Attack Proxy\\zap.bat'
+        APP_PORT       = "5000"
+        HOST_PORT      = "5000"
+        APP_URL        = "http://localhost:${HOST_PORT}"
+        GITLEAKS_CMD   = 'C:\\Users\\asngo\\AppData\\Local\\Microsoft\\WinGet\\Packages\\Gitleaks.Gitleaks_Microsoft.Winget.Source_8wekyb3d8bbwe\\gitleaks.exe'
+        ZAP_CMD        = 'C:\\Program Files\\ZAP\\Zed Attack Proxy\\zap.bat'
+ 
+        // ── Ajouts pour l'analyse IA (NE PAS MODIFIER les lignes au-dessus) ──
+        // Créer dans Jenkins : Manage Jenkins → Credentials → Global
+        //   → Add Credentials → Secret text → ID: anthropic-api-key
+        ANTHROPIC_API_KEY = credentials('anthropic-api-key')
+        REPORT_DIR     = "${WORKSPACE}\\reports"
+        EMAIL_CONFIG   = "${WORKSPACE}\\email_config.json"
+        PYTHON         = "venv\\Scripts\\python"
     }
-
+ 
     options {
         timestamps()
     }
-
+ 
     stages {
+ 
+        // ─────────────────────────────────────────────────────────────────
+        // Stages existants — INCHANGÉS
+        // ─────────────────────────────────────────────────────────────────
+ 
         stage('Checkout') {
             steps {
                 checkout scm
             }
         }
-
+ 
         stage('Setup Python Environment') {
             steps {
                 bat '''
@@ -31,10 +44,14 @@ pipeline {
                 venv\\Scripts\\python -m pip install --upgrade pip
                 venv\\Scripts\\python -m pip install -r requirements.txt
                 venv\\Scripts\\python -m pip install flake8 pytest bandit pip-audit
+                venv\\Scripts\\python -m pip install requests weasyprint
                 '''
             }
+            // Seul ajout : "requests weasyprint" à la fin du pip install
+            // requis par analyze_pipeline.py pour l'analyse IA et la génération PDF
+            // Si weasyprint pose problème : retirez-le et ajoutez --no-pdf dans le stage AI Analysis
         }
-
+ 
         stage('Lint - Flake8') {
             steps {
                 bat '''
@@ -42,7 +59,7 @@ pipeline {
                 '''
             }
         }
-
+ 
         stage('Tests - Pytest') {
             steps {
                 bat '''
@@ -50,7 +67,7 @@ pipeline {
                 '''
             }
         }
-
+ 
         stage('Security - Bandit') {
             steps {
                 bat '''
@@ -58,7 +75,7 @@ pipeline {
                 '''
             }
         }
-
+ 
         stage('Security - pip-audit') {
             steps {
                 bat '''
@@ -66,7 +83,7 @@ pipeline {
                 '''
             }
         }
-
+ 
         stage('Security - Gitleaks') {
             steps {
                 bat '''
@@ -74,7 +91,7 @@ pipeline {
                 '''
             }
         }
-
+ 
         stage('Build Docker Image') {
             steps {
                 bat '''
@@ -82,7 +99,7 @@ pipeline {
                 '''
             }
         }
-
+ 
         stage('Security - Trivy') {
             steps {
                 bat '''
@@ -90,7 +107,7 @@ pipeline {
                 '''
             }
         }
-
+ 
         stage('Deploy Local Container') {
             steps {
                 bat '''
@@ -99,6 +116,7 @@ pipeline {
                 '''
             }
         }
+ 
         stage('Wait for Application') {
             steps {
                 bat '''
@@ -106,7 +124,7 @@ pipeline {
                 '''
             }
         }
-
+ 
         stage('Check Application Availability') {
             steps {
                 bat '''
@@ -114,17 +132,50 @@ pipeline {
                 '''
             }
         }
-
+ 
         stage('DAST - OWASP ZAP') {
-           steps {
+            steps {
                 bat '''
                 cd /d "C:\\Program Files\\ZAP\\Zed Attack Proxy"
                 zap.bat -cmd -quickurl http://localhost:5000 -quickout "C:\\ProgramData\\Jenkins\\.jenkins\\workspace\\secure-task-api-v2\\zap_report.html"
-             '''
+                '''
+            }
+        }
+ 
+        // ─────────────────────────────────────────────────────────────────
+        // NOUVEAU stage — Analyse IA des logs avec Claude
+        // Place : après ZAP, avant le bloc post
+        // Fichiers requis dans votre repo GitHub :
+        //   - analyze_pipeline.py  (fourni)
+        //   - email_config.json    (fourni — à personnaliser avec vos infos SMTP)
+        // ─────────────────────────────────────────────────────────────────
+        stage('AI Analysis - Claude') {
+            steps {
+                script {
+                    // Capture tous les logs du build courant
+                    def logLines = currentBuild.rawBuild.getLog(50000)
+                    writeFile file: 'pipeline.log', text: logLines.join('\n')
+                }
+                bat '''
+                if not exist reports mkdir reports
+ 
+                %PYTHON% analyze_pipeline.py ^
+                    --log pipeline.log ^
+                    --output reports ^
+                    --email-config %EMAIL_CONFIG%
+                '''
+                // En cas de problème avec weasyprint (PDF) sur Windows, remplacez par :
+                // %PYTHON% analyze_pipeline.py --log pipeline.log --output reports --no-pdf --email-config %EMAIL_CONFIG%
             }
         }
     }
-
+ 
+    // ─────────────────────────────────────────────────────────────────────
+    // post block — légèrement restructuré :
+    //   1. archiveArtifacts inclut maintenant reports/**
+    //   2. publishHTML ajouté pour afficher le rapport IA dans Jenkins
+    //   3. cleanWs() déplacé APRÈS archivage (était avant = bug silencieux)
+    // ─────────────────────────────────────────────────────────────────────
     post {
         success {
             echo 'Pipeline termine avec succes.'
@@ -135,11 +186,21 @@ pipeline {
         }
         always {
             archiveArtifacts(
-                artifacts: 'zap_report.html, **/*.css, **/*.js, **/*.png',
+                artifacts: 'zap_report.html, reports/**, **/*.css, **/*.js, **/*.png',
                 fingerprint: true,
                 allowEmptyArchive: true
             )
-           cleanWs()
+            // Publie le rapport HTML IA directement dans l'interface Jenkins
+            // Requiert le plugin "HTML Publisher" (Manage Jenkins → Plugins → Available)
+            publishHTML(target: [
+                allowMissing         : true,
+                alwaysLinkToLastBuild: true,
+                keepAll              : true,
+                reportDir            : 'reports',
+                reportFiles          : 'report_*.html',
+                reportName           : '📊 Rapport IA CI/CD'
+            ])
+            cleanWs()
         }
     }
 }

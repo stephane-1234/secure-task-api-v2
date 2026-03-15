@@ -1,0 +1,13 @@
+{
+  "smtp_host": "smtp.gmail.com",
+  "smtp_port": 587,
+  "tls": true,
+  "from": "jenkins-ci@mondomaine.com",
+  "username": "jenkins-ci@mondomaine.com",
+  "password": "MON_MOT_DE_PASSE_APP",
+  "to": [
+    "dev-team@mondomaine.com",
+    "security@mondomaine.com"
+  ],
+  "subject": "📊 [Jenkins] Rapport CI/CD — secure-task-api-v2"
+}
