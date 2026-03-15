@@ -1,8 +1,14 @@
 #!/usr/bin/env python3
 """
 analyze_pipeline.py
-Analyse les logs Jenkins avec l'API Claude et génère des rapports
-HTML, PDF, JSON et Email.
+Analyse les logs Jenkins avec Ollama (LLM local, 100% gratuit)
+et génère des rapports HTML, PDF, JSON et Email.
+
+Prérequis :
+  1. Installer Ollama  : https://ollama.com/download  (Windows)
+  2. Télécharger le modèle : ollama pull mistral
+  3. pip install requests weasyprint
+
 Usage : python analyze_pipeline.py --log jenkins.log --output ./reports
 """
 
@@ -129,25 +135,39 @@ def quick_summary(stages: dict) -> dict:
 
 
 # ─────────────────────────────────────────────
-# 2. APPEL API CLAUDE
+# 2. APPEL OLLAMA (LLM LOCAL — 100% GRATUIT)
 # ─────────────────────────────────────────────
+
+# Modèles recommandés selon votre RAM :
+#   mistral        → 7B  — 8 GB RAM min  — excellent rapport qualité/vitesse ✅
+#   llama3.2       → 3B  — 4 GB RAM min  — plus rapide, légèrement moins précis
+#   mixtral        → 47B — 32 GB RAM min — le plus puissant (votre config !)
+# Changez OLLAMA_MODEL selon votre préférence.
+OLLAMA_MODEL   = "mistral"          # ollama pull mistral
+OLLAMA_URL     = "http://localhost:11434/api/generate"
+OLLAMA_TIMEOUT = 300                # secondes — mistral prend ~30-90s selon GPU
 
 SYSTEM_PROMPT = """Tu es un expert DevSecOps senior. Tu analyses les logs de pipelines CI/CD Jenkins
 et tu produis des rapports d'analyse structurés, précis et actionnables.
 
 Pour chaque stage analysé, tu fournis :
-1. Un résumé clair du résultat (✅ OK / ⚠️ Avertissement / ❌ Critique)
+1. Un résumé clair du résultat (OK / Avertissement / Critique)
 2. Une explication technique détaillée des problèmes trouvés
 3. Des exemples concrets de corrections à apporter (code, commandes)
 4. Un niveau de priorité (P1-Critique / P2-Haute / P3-Moyenne / P4-Faible)
 
-Réponds UNIQUEMENT en JSON valide avec la structure suivante :
+IMPORTANT : Réponds UNIQUEMENT avec du JSON brut valide.
+Ne mets AUCUN texte avant ou après le JSON.
+Ne mets PAS de balises ```json```.
+Commence directement par { et termine par }.
+
+Structure JSON obligatoire :
 {
   "pipeline_name": "string",
   "build_date": "string",
   "global_status": "OK|WARNING|CRITICAL",
   "global_summary": "string (2-3 phrases)",
-  "risk_score": 0-100,
+  "risk_score": 0,
   "stages": [
     {
       "name": "string",
@@ -159,9 +179,9 @@ Réponds UNIQUEMENT en JSON valide avec la structure suivante :
           "severity": "CRITICAL|HIGH|MEDIUM|LOW|INFO",
           "priority": "P1|P2|P3|P4",
           "description": "string",
-          "location": "string (fichier:ligne ou composant)",
-          "fix_example": "string (code ou commande concrète)",
-          "references": ["CVE ou lien"]
+          "location": "string",
+          "fix_example": "string",
+          "references": []
         }
       ],
       "metrics": {}
@@ -171,7 +191,7 @@ Réponds UNIQUEMENT en JSON valide avec la structure suivante :
     {
       "title": "string",
       "impact": "string",
-      "effort": "Faible|Moyen|Élevé",
+      "effort": "Faible|Moyen|Eleve",
       "steps": ["string"]
     }
   ],
@@ -179,62 +199,90 @@ Réponds UNIQUEMENT en JSON valide avec la structure suivante :
 }"""
 
 
-def call_claude_api(stages: dict, summary: dict, api_key: str) -> dict:
-    """Appelle l'API Claude pour une analyse complète."""
+def check_ollama_running() -> bool:
+    """Vérifie qu'Ollama tourne bien sur localhost:11434."""
+    try:
+        r = requests.get("http://localhost:11434/api/tags", timeout=5)
+        return r.status_code == 200
+    except Exception:
+        return False
 
-    # Prépare le contexte pour Claude (limité pour éviter les tokens excessifs)
+
+def call_ollama(stages: dict, summary: dict,
+                model: str = OLLAMA_MODEL) -> dict:
+    """Appelle Ollama en local pour une analyse complète des logs."""
+
+    # Vérifie que le service Ollama est démarré
+    if not check_ollama_running():
+        raise RuntimeError(
+            "Ollama n'est pas démarré !\n"
+            "  → Ouvrez un terminal et lancez : ollama serve\n"
+            "  → Puis dans un autre terminal  : ollama pull " + model
+        )
+
+    # Prépare le contexte (limité à 2500 chars/stage pour rester dans le contexte)
     context_parts = []
     for stage_name, content in stages.items():
         if content.strip():
-            # Limite chaque section à 3000 caractères
-            truncated = content[:3000] + ("...[tronqué]" if len(content) > 3000 else "")
+            truncated = content[:2500] + ("...[tronqué]" if len(content) > 2500 else "")
             context_parts.append(f"### STAGE: {stage_name.upper()}\n{truncated}")
-
     context = "\n\n".join(context_parts)
 
-    prompt = f"""Analyse ce log de pipeline Jenkins CI/CD et génère un rapport complet.
+    prompt = f"""{SYSTEM_PROMPT}
 
+---
 MÉTRIQUES RAPIDES DÉTECTÉES :
 - Tests Pytest : {summary['pytest_passed']} passed, {summary['pytest_failed']} failed
-- Erreurs Lint : {len(summary['lint_errors'])} erreurs Flake8
+- Erreurs Lint Flake8 : {len(summary['lint_errors'])}
 - Bandit : {summary['bandit_high']} HIGH, {summary['bandit_medium']} MEDIUM
 - Trivy : {summary['trivy_high']} HIGH, {summary['trivy_critical']} CRITICAL
-- CVEs : {', '.join(summary['cves']) if summary['cves'] else 'aucune'}
-- Secrets : {'⚠️ FUITE DÉTECTÉE' if summary['secrets_leaked'] else '✅ Aucun secret'}
-- Pip-audit : {'✅ Aucune vulnérabilité' if summary['pip_vulns'] == 0 else '⚠️ Vulnérabilités'}
+- CVEs détectées : {', '.join(summary['cves']) if summary['cves'] else 'aucune'}
+- Secrets leakés : {'OUI - CRITIQUE' if summary['secrets_leaked'] else 'Non'}
+- Pip-audit : {'Aucune vulnérabilité' if summary['pip_vulns'] == 0 else 'Vulnérabilités détectées'}
 
 LOGS DU PIPELINE :
 {context}
 
-Génère une analyse complète avec exemples de fix concrets pour chaque problème identifié."""
-
-    headers = {
-        "x-api-key": api_key,
-        "anthropic-version": "2023-06-01",
-        "content-type": "application/json",
-    }
+Génère maintenant le rapport JSON complet avec exemples de fix concrets.
+Rappel : commence directement par {{ sans aucun texte avant."""
 
     payload = {
-        "model": "claude-sonnet-4-20250514",
-        "max_tokens": 4000,
-        "system": SYSTEM_PROMPT,
-        "messages": [{"role": "user", "content": prompt}],
+        "model": model,
+        "prompt": prompt,
+        "stream": False,
+        "options": {
+            "temperature": 0.1,      # Basse température = réponses JSON plus stables
+            "num_predict": 4096,     # Tokens max en sortie
+            "num_ctx": 8192,         # Fenêtre de contexte
+        }
     }
 
-    resp = requests.post(
-        "https://api.anthropic.com/v1/messages",
-        headers=headers,
-        json=payload,
-        timeout=120,
-    )
+    print(f"  🤖 Modèle : {model} | URL : {OLLAMA_URL}")
+    print(f"  ⏳ Analyse en cours (peut prendre 30-90s selon GPU)...")
+
+    resp = requests.post(OLLAMA_URL, json=payload, timeout=OLLAMA_TIMEOUT)
     resp.raise_for_status()
-    raw = resp.json()["content"][0]["text"]
 
-    # Nettoie les balises markdown si présentes
-    raw = re.sub(r"```json\s*", "", raw)
-    raw = re.sub(r"```\s*", "", raw)
+    raw = resp.json().get("response", "")
 
-    return json.loads(raw)
+    # Nettoyage robuste — Ollama peut quand même ajouter des backticks
+    raw = raw.strip()
+    raw = re.sub(r"^```json\s*", "", raw)
+    raw = re.sub(r"^```\s*",     "", raw)
+    raw = re.sub(r"\s*```$",     "", raw)
+    raw = raw.strip()
+
+    # Extrait le JSON même s'il y a du texte parasite avant/après
+    json_match = re.search(r"\{.*\}", raw, re.DOTALL)
+    if json_match:
+        raw = json_match.group(0)
+
+    try:
+        return json.loads(raw)
+    except json.JSONDecodeError as e:
+        # Fallback : retourne un rapport minimal si le JSON est invalide
+        print(f"  ⚠️  JSON malformé reçu d'Ollama ({e}). Génération rapport de fallback.")
+        return _fallback_report(summary, raw)
 
 
 # ─────────────────────────────────────────────
@@ -529,7 +577,7 @@ def build_html_report(report: dict, summary: dict) -> str:
   <div class="hero-top">
     <div>
       <div class="pipeline-name">🔬 <span>{report.get('pipeline_name','Pipeline')}</span> — Rapport CI/CD</div>
-      <div class="build-meta">Généré le {now} · Analyse propulsée par Claude AI</div>
+      <div class="build-meta">Généré le {now} · Analyse propulsée par Ollama / {OLLAMA_MODEL}</div>
       <div class="build-meta" style="margin-top:4px">{report.get('build_date','')}</div>
     </div>
     <div class="global-badge">{STATUS_ICON.get(status,'')} {status}</div>
@@ -586,7 +634,7 @@ def build_html_report(report: dict, summary: dict) -> str:
 </div>
 
 <div class="footer">
-  Rapport généré par <span>analyze_pipeline.py</span> · Analyse IA par <span>Claude (Anthropic)</span>
+  Rapport généré par <span>analyze_pipeline.py</span> · Analyse IA par <span>Ollama / Mistral (local)</span>
 </div>
 
 </body>
@@ -594,7 +642,67 @@ def build_html_report(report: dict, summary: dict) -> str:
     return html
 
 
-def generate_json_report(report: dict, summary: dict) -> dict:
+def _fallback_report(summary: dict, raw_text: str = "") -> dict:
+    """Rapport de secours si Ollama retourne un JSON invalide."""
+    status = summary.get("global_status", "WARNING")
+    issues = []
+    if summary.get("trivy_high", 0) > 0:
+        issues.append({"title": f"Trivy: {summary['trivy_high']} vulnérabilités HIGH",
+                       "severity": "HIGH", "priority": "P2",
+                       "description": "Des vulnérabilités HIGH ont été détectées dans l'image Docker.",
+                       "location": "Image Docker",
+                       "fix_example": "Mettez à jour l'image de base : FROM python:3.12-slim",
+                       "references": summary.get("cves", [])})
+    if summary.get("secrets_leaked", 0):
+        issues.append({"title": "Secret potentiellement leaké (Gitleaks)",
+                       "severity": "CRITICAL", "priority": "P1",
+                       "description": "Gitleaks a détecté un secret dans le code source.",
+                       "location": "Repository Git",
+                       "fix_example": "Révoquez immédiatement la clé concernée et utilisez des variables d'environnement.",
+                       "references": []})
+    if summary.get("pytest_failed", 0) > 0:
+        issues.append({"title": f"{summary['pytest_failed']} test(s) Pytest échoué(s)",
+                       "severity": "HIGH", "priority": "P1",
+                       "description": "Des tests unitaires sont en échec.",
+                       "location": "test_app.py",
+                       "fix_example": "Lancez : pytest -v pour voir les détails des échecs.",
+                       "references": []})
+    return {
+        "pipeline_name": "secure-task-api-v2",
+        "build_date": datetime.datetime.now().strftime("%d/%m/%Y %H:%M"),
+        "global_status": status,
+        "global_summary": (
+            f"Pipeline analysé avec {len(issues)} problème(s) détecté(s) "
+            f"(analyse LLM partielle — modèle Ollama local). "
+            f"Score basé sur les métriques extraites automatiquement."
+        ),
+        "risk_score": min(100, len(issues) * 20 + summary.get("trivy_high", 0) * 10),
+        "stages": [{"name": "Analyse globale", "status": status,
+                    "summary": "Résumé basé sur les métriques extraites du log.",
+                    "issues": issues, "metrics": {
+                        "tests_passed": summary.get("pytest_passed", 0),
+                        "tests_failed": summary.get("pytest_failed", 0),
+                        "trivy_high": summary.get("trivy_high", 0),
+                        "trivy_critical": summary.get("trivy_critical", 0),
+                    }}],
+        "recommendations": [
+            {"title": "Résoudre les vulnérabilités Trivy",
+             "impact": "Réduction du risque de sécurité de l'image Docker",
+             "effort": "Moyen",
+             "steps": ["Mettre à jour l'image de base Docker",
+                       "Exécuter trivy image --severity CRITICAL,HIGH",
+                       "Corriger les dépendances vulnérables"]}
+        ],
+        "developer_checklist": [
+            "Vérifier les vulnérabilités Trivy HIGH/CRITICAL",
+            "S'assurer que tous les tests Pytest passent",
+            "Valider l'absence de secrets dans le code",
+            "Mettre à jour les dépendances Python",
+        ]
+    }
+
+
+
     """Retourne le rapport JSON enrichi avec les métriques rapides."""
     report["raw_metrics"] = summary
     report["generated_at"] = datetime.datetime.now().isoformat()
@@ -671,7 +779,7 @@ def generate_email_body(report: dict, summary: dict) -> str:
   </table>
 
   <p style="color:#8b949e;font-size:11px;margin-top:24px;text-align:center">
-    Rapport complet joint en PDF · Généré par analyze_pipeline.py · Claude AI (Anthropic)
+    Rapport complet joint en PDF · Généré par analyze_pipeline.py · Ollama (LLM local)
   </p>
 </div>
 </body></html>"""
@@ -713,21 +821,18 @@ def send_email(html_body: str, pdf_path: str | None, cfg: dict):
 # ─────────────────────────────────────────────
 
 def main():
-    parser = argparse.ArgumentParser(description="Analyse CI/CD avec Claude AI")
-    parser.add_argument("--log", required=True, help="Chemin vers le fichier log Jenkins")
-    parser.add_argument("--output", default="./reports", help="Dossier de sortie")
-    parser.add_argument("--api-key", default=os.getenv("ANTHROPIC_API_KEY"),
-                        help="Clé API Anthropic (ou var ANTHROPIC_API_KEY)")
+    parser = argparse.ArgumentParser(description="Analyse CI/CD avec Ollama (LLM local)")
+    parser.add_argument("--log",          required=True, help="Chemin vers le fichier log Jenkins")
+    parser.add_argument("--output",       default="./reports", help="Dossier de sortie")
+    parser.add_argument("--model",        default=OLLAMA_MODEL,
+                        help=f"Modèle Ollama à utiliser (défaut: {OLLAMA_MODEL})")
+    parser.add_argument("--ollama-url",   default=OLLAMA_URL,
+                        help="URL de l'API Ollama (défaut: http://localhost:11434/api/generate)")
     parser.add_argument("--email-config", default=None,
                         help="Chemin vers email_config.json")
-    parser.add_argument("--no-pdf", action="store_true", help="Désactiver la génération PDF")
-    parser.add_argument("--no-email", action="store_true", help="Désactiver l'envoi email")
+    parser.add_argument("--no-pdf",       action="store_true", help="Désactiver la génération PDF")
+    parser.add_argument("--no-email",     action="store_true", help="Désactiver l'envoi email")
     args = parser.parse_args()
-
-    if not args.api_key:
-        print("❌ Clé API Anthropic manquante. "
-              "Définissez ANTHROPIC_API_KEY ou utilisez --api-key")
-        sys.exit(1)
 
     # Lecture du log
     log_path = Path(args.log)
@@ -744,9 +849,9 @@ def main():
     summary = quick_summary(stages)
     print(f"   Statut rapide : {summary['global_status']}")
 
-    # Appel Claude
-    print("🤖 Analyse avec Claude AI...")
-    report = call_claude_api(stages, summary, args.api_key)
+    # Appel Ollama
+    print(f"🤖 Analyse avec Ollama ({args.model}) — 100% local, 0$ ...")
+    report = call_ollama(stages, summary, model=args.model)
     print(f"   Score de risque : {report.get('risk_score', '?')}/100")
 
     # Création du dossier de sortie
@@ -788,9 +893,9 @@ def main():
             print(f"  ⚠️  email_config.json introuvable : {args.email_config}")
 
     print("\n✅ Analyse terminée !")
-    print(f"   Statut global : {report.get('global_status')}")
-    print(f"   Score de risque : {report.get('risk_score')}/100")
-    print(f"   Rapports dans : {out_dir.absolute()}")
+    print(f"   Statut global  : {report.get('global_status')}")
+    print(f"   Score de risque: {report.get('risk_score')}/100")
+    print(f"   Rapports dans  : {out_dir.absolute()}")
 
 
 if __name__ == "__main__":

@@ -428,7 +428,7 @@ body::before{
       <div class="nav-item" onclick="window.print()"><span class="icon">🖨️</span> Imprimer/PDF</div>
     </nav>
     <div class="sidebar-footer">
-      <span class="status-dot"></span>Propulsé par Claude AI
+      <span class="status-dot"></span>Ollama local · Mistral 7B
     </div>
   </aside>
 
@@ -439,12 +439,16 @@ body::before{
     <div class="topbar">
       <div>
         <div class="topbar-title">Analyseur de Logs CI/CD</div>
-        <div class="topbar-sub">Déposez vos logs Jenkins → rapport IA complet</div>
+        <div class="topbar-sub">Déposez vos logs Jenkins → rapport IA complet · 100% local · 0$</div>
       </div>
       <div class="api-key-wrap">
-        <input type="password" class="api-input" id="apiKey"
-               placeholder="🔑 Clé API Anthropic (sk-ant-...)"
-               title="Votre clé API Anthropic">
+        <div id="ollamaStatus" style="display:flex;align-items:center;gap:8px;font-size:12px;
+             padding:8px 16px;border-radius:8px;background:var(--surface2);border:1px solid var(--border);
+             font-family:'JetBrains Mono',monospace;cursor:pointer" onclick="checkOllamaStatus()"
+             title="Cliquez pour vérifier le statut Ollama">
+          <span id="ollamaDot" style="width:8px;height:8px;border-radius:50%;background:var(--muted);flex-shrink:0"></span>
+          <span id="ollamaText" style="color:var(--muted)">Vérification Ollama...</span>
+        </div>
       </div>
     </div>
 
@@ -606,10 +610,8 @@ function resetFile(){
 }
 
 function checkReady(){
-  const key = document.getElementById('apiKey').value.trim();
-  document.getElementById('analyzeBtn').disabled = !(logContent.trim() && key);
+  document.getElementById('analyzeBtn').disabled = !logContent.trim();
 }
-document.getElementById('apiKey').addEventListener('input', checkReady);
 
 function formatBytes(b){
   if(b<1024) return b+'B';
@@ -674,56 +676,57 @@ function quickSummary(stages){
 }
 
 // ─────────────────────────────────────────────
-// CLAUDE API CALL
+// OLLAMA LOCAL API CALL — 100% GRATUIT
 // ─────────────────────────────────────────────
-async function callClaude(stages, summary, apiKey){
-  const SYSTEM = `Tu es un expert DevSecOps senior. Analyse les logs de pipeline CI/CD Jenkins et produis un rapport complet et actionnable.
+// Ollama expose une API REST sur http://localhost:11434
+// Le dashboard appelle directement cette API depuis le navigateur.
+// Prérequis : ollama serve  (dans un terminal)
+//
+const OLLAMA_URL   = 'http://localhost:11434/api/generate';
+const OLLAMA_MODEL = 'mistral'; // Changez par 'llama3.2' ou 'mixtral' si souhaité
 
-Pour chaque stage, fournis : statut, résumé, problèmes détaillés avec exemples de fix concrets.
+async function checkOllamaRunning() {
+  try {
+    const r = await fetch('http://localhost:11434/api/tags', {method:'GET'});
+    return r.ok;
+  } catch { return false; }
+}
 
-Réponds UNIQUEMENT en JSON valide (sans balises markdown) avec cette structure exacte :
+async function callOllama(stages, summary) {
+  const isRunning = await checkOllamaRunning();
+  if (!isRunning) {
+    throw new Error(
+      'Ollama n\'est pas démarré !\n\n' +
+      '1. Ouvrez un terminal Windows\n' +
+      '2. Tapez : ollama serve\n' +
+      '3. Dans un autre terminal : ollama pull mistral\n' +
+      '4. Relancez l\'analyse'
+    );
+  }
+
+  const SYSTEM = `Tu es un expert DevSecOps senior. Analyse les logs de pipeline CI/CD Jenkins.
+
+IMPORTANT : Réponds UNIQUEMENT avec du JSON brut valide.
+Ne mets AUCUN texte avant ou après. Commence par { et termine par }.
+
+Structure JSON obligatoire :
 {
   "pipeline_name": "string",
   "build_date": "string",
   "global_status": "OK|WARNING|CRITICAL",
   "global_summary": "string",
-  "risk_score": 0-100,
-  "stages": [
-    {
-      "name": "string",
-      "status": "OK|WARNING|CRITICAL|SKIPPED",
-      "summary": "string",
-      "issues": [
-        {
-          "title": "string",
-          "severity": "CRITICAL|HIGH|MEDIUM|LOW|INFO",
-          "priority": "P1|P2|P3|P4",
-          "description": "string",
-          "location": "string",
-          "fix_example": "string (code ou commande concrète et applicable)",
-          "references": ["CVE-XXXX-YYYY"]
-        }
-      ],
-      "metrics": {}
-    }
-  ],
-  "recommendations": [
-    {
-      "title": "string",
-      "impact": "string",
-      "effort": "Faible|Moyen|Élevé",
-      "steps": ["string"]
-    }
-  ],
+  "risk_score": 0,
+  "stages": [{"name":"string","status":"OK|WARNING|CRITICAL|SKIPPED","summary":"string","issues":[{"title":"string","severity":"CRITICAL|HIGH|MEDIUM|LOW|INFO","priority":"P1|P2|P3|P4","description":"string","location":"string","fix_example":"string","references":[]}],"metrics":{}}],
+  "recommendations": [{"title":"string","impact":"string","effort":"Faible|Moyen|Eleve","steps":["string"]}],
   "developer_checklist": ["string"]
 }`;
 
   const parts = [];
   for(const[name,content] of Object.entries(stages)){
-    if(content.trim()) parts.push(`### STAGE: ${name.toUpperCase()}\n${content.slice(0,2500)}`);
+    if(content.trim()) parts.push(`### STAGE: ${name.toUpperCase()}\n${content.slice(0,2000)}`);
   }
 
-  const prompt = `Analyse ce pipeline Jenkins CI/CD.
+  const prompt = `${SYSTEM}
 
 MÉTRIQUES RAPIDES :
 - Tests: ${summary.pytest_passed} passed, ${summary.pytest_failed} failed
@@ -731,39 +734,75 @@ MÉTRIQUES RAPIDES :
 - Bandit: ${summary.bandit_high} HIGH, ${summary.bandit_medium} MEDIUM
 - Trivy: ${summary.trivy_high} HIGH, ${summary.trivy_critical} CRITICAL
 - CVEs: ${summary.cves.join(', ')||'aucune'}
-- Secrets leakés: ${summary.secrets_leaked?'⚠️ OUI':'✅ Non'}
-- Pip-audit: ${summary.pip_vulns===0?'✅ Clean':'⚠️ Vulnérabilités'}
+- Secrets leakés: ${summary.secrets_leaked?'OUI - CRITIQUE':'Non'}
+- Pip-audit: ${summary.pip_vulns===0?'Clean':'Vulnérabilités'}
 
 LOGS :
 ${parts.join('\n\n')}
 
-Génère une analyse complète avec exemples de fix concrets et actionnables pour chaque problème.`;
+Génère maintenant le JSON complet. Commence directement par {`;
 
-  const resp = await fetch('https://api.anthropic.com/v1/messages', {
-    method:'POST',
-    headers:{
-      'Content-Type':'application/json',
-      'x-api-key':apiKey,
-      'anthropic-version':'2023-06-01',
-      'anthropic-dangerous-direct-browser-access':'true'
-    },
-    body:JSON.stringify({
-      model:'claude-sonnet-4-20250514',
-      max_tokens:4096,
-      system:SYSTEM,
-      messages:[{role:'user',content:prompt}]
+  const resp = await fetch(OLLAMA_URL, {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({
+      model:   OLLAMA_MODEL,
+      prompt:  prompt,
+      stream:  false,
+      options: {
+        temperature: 0.1,
+        num_predict: 4096,
+        num_ctx:     8192,
+      }
     })
   });
 
-  if(!resp.ok){
-    const err = await resp.json().catch(()=>({}));
-    throw new Error(err.error?.message||`API error ${resp.status}`);
+  if(!resp.ok) {
+    const err = await resp.text();
+    throw new Error(`Ollama erreur ${resp.status}: ${err}`);
   }
 
   const data = await resp.json();
-  let raw = data.content[0].text;
-  raw = raw.replace(/```json\s*/g,'').replace(/```\s*/g,'').trim();
-  return JSON.parse(raw);
+  let raw = (data.response || '').trim();
+
+  // Nettoyage robuste
+  raw = raw.replace(/^```json\s*/,'').replace(/^```\s*/,'').replace(/\s*```$/,'').trim();
+  const match = raw.match(/\{[\s\S]*\}/);
+  if(match) raw = match[0];
+
+  try {
+    return JSON.parse(raw);
+  } catch(e) {
+    // Fallback si JSON invalide
+    console.warn('JSON Ollama invalide, fallback rapport:', e);
+    return buildFallbackReport(summary);
+  }
+}
+
+function buildFallbackReport(summary) {
+  const issues = [];
+  if(summary.trivy_high > 0)
+    issues.push({title:`Trivy: ${summary.trivy_high} vulnérabilités HIGH`,severity:'HIGH',priority:'P2',
+      description:'Vulnérabilités HIGH détectées dans l\'image Docker.',
+      location:'Image Docker',fix_example:'FROM python:3.12-slim',references:summary.cves});
+  if(summary.secrets_leaked)
+    issues.push({title:'Secret leaké détecté (Gitleaks)',severity:'CRITICAL',priority:'P1',
+      description:'Un secret a été détecté dans le code source.',
+      location:'Repository Git',fix_example:'Révoquez la clé et utilisez des variables d\'environnement.',references:[]});
+  if(summary.pytest_failed > 0)
+    issues.push({title:`${summary.pytest_failed} test(s) Pytest échoué(s)`,severity:'HIGH',priority:'P1',
+      description:'Des tests unitaires sont en échec.',
+      location:'test_app.py',fix_example:'pytest -v pour voir les détails.',references:[]});
+  return {
+    pipeline_name:'secure-task-api-v2',
+    build_date: new Date().toLocaleString('fr-FR'),
+    global_status: summary.global_status,
+    global_summary:`Pipeline analysé — ${issues.length} problème(s) détecté(s). Analyse basée sur les métriques extraites automatiquement.`,
+    risk_score: Math.min(100, issues.length*20 + summary.trivy_high*10),
+    stages:[{name:'Analyse globale',status:summary.global_status,summary:'Résumé basé sur les métriques du log.',issues,metrics:{tests_passed:summary.pytest_passed,tests_failed:summary.pytest_failed}}],
+    recommendations:[{title:'Corriger les vulnérabilités Trivy',impact:'Réduction du risque Docker',effort:'Moyen',steps:['Mettre à jour l\'image de base','Relancer trivy image','Corriger les dépendances']}],
+    developer_checklist:['Vérifier les CVEs Trivy HIGH/CRITICAL','Faire passer tous les tests Pytest','Valider absence de secrets','Mettre à jour les dépendances Python']
+  };
 }
 
 // ─────────────────────────────────────────────
@@ -783,8 +822,7 @@ function setStep(n, pct){
 // MAIN ANALYSIS
 // ─────────────────────────────────────────────
 async function startAnalysis(){
-  const apiKey = document.getElementById('apiKey').value.trim();
-  if(!apiKey||!logContent) return;
+  if(!logContent) return;
 
   // Reset UI
   document.getElementById('analyzeBtn').disabled = true;
@@ -806,7 +844,8 @@ async function startAnalysis(){
     currentSummary = summary;
     setStep(3,50);
 
-    const report = await callClaude(stages, summary, apiKey);
+    // Appel Ollama local — plus besoin de clé API !
+    const report = await callOllama(stages, summary);
     currentReport = report;
     setStep(4,85);
     await sleep(300);
@@ -821,7 +860,7 @@ async function startAnalysis(){
 
   } catch(err){
     prog.classList.remove('show');
-    showToast('❌ Erreur : '+err.message);
+    showToast('❌ ' + err.message);
     document.getElementById('emptyState').style.display = 'block';
   } finally{
     document.getElementById('analyzeBtn').disabled = false;
@@ -1004,8 +1043,28 @@ function download(content, filename, mime){
 }
 
 // ─────────────────────────────────────────────
-// TOAST
+// VÉRIFICATION OLLAMA AU DÉMARRAGE
 // ─────────────────────────────────────────────
+async function checkOllamaStatus(){
+  const dot  = document.getElementById('ollamaDot');
+  const text = document.getElementById('ollamaText');
+  dot.style.background  = '#f59e0b';
+  text.style.color      = '#f59e0b';
+  text.textContent      = 'Vérification...';
+  const ok = await checkOllamaRunning();
+  if(ok){
+    dot.style.background  = '#22c55e';
+    text.style.color      = '#22c55e';
+    text.textContent      = `✅ Ollama prêt (${OLLAMA_MODEL})`;
+  } else {
+    dot.style.background  = '#ef4444';
+    text.style.color      = '#ef4444';
+    text.textContent      = '❌ Ollama non démarré — cliquez pour aide';
+    dot.onclick = ()=> showToast('Lancez : ollama serve  dans un terminal Windows');
+  }
+}
+window.addEventListener('load', checkOllamaStatus);
+
 function showToast(msg){
   const t=document.createElement('div');
   t.className='toast';t.textContent=msg;

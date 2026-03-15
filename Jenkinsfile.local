@@ -1,6 +1,6 @@
 pipeline {
     agent any
- 
+
     environment {
         IMAGE_NAME     = "secure-task-api"
         IMAGE_TAG      = "v2"
@@ -11,32 +11,32 @@ pipeline {
         APP_URL        = "http://localhost:${HOST_PORT}"
         GITLEAKS_CMD   = 'C:\\Users\\asngo\\AppData\\Local\\Microsoft\\WinGet\\Packages\\Gitleaks.Gitleaks_Microsoft.Winget.Source_8wekyb3d8bbwe\\gitleaks.exe'
         ZAP_CMD        = 'C:\\Program Files\\ZAP\\Zed Attack Proxy\\zap.bat'
- 
-        // ── Ajouts pour l'analyse IA (NE PAS MODIFIER les lignes au-dessus) ──
-        // Créer dans Jenkins : Manage Jenkins → Credentials → Global
-        //   → Add Credentials → Secret text → ID: anthropic-api-key
-        ANTHROPIC_API_KEY = credentials('anthropic-api-key')
+
+        // ── Variables pour l'analyse IA Ollama (LLM local, 100% gratuit) ──
+        // Pas de clé API nécessaire — Ollama tourne sur la même machine que Jenkins
+        OLLAMA_MODEL   = "mistral"         // Modèle téléchargé avec : ollama pull mistral
+        OLLAMA_URL     = "http://localhost:11434/api/generate"
         REPORT_DIR     = "${WORKSPACE}\\reports"
         EMAIL_CONFIG   = "${WORKSPACE}\\email_config.json"
         PYTHON         = "venv\\Scripts\\python"
     }
- 
+
     options {
         timestamps()
     }
- 
+
     stages {
- 
+
         // ─────────────────────────────────────────────────────────────────
         // Stages existants — INCHANGÉS
         // ─────────────────────────────────────────────────────────────────
- 
+
         stage('Checkout') {
             steps {
                 checkout scm
             }
         }
- 
+
         stage('Setup Python Environment') {
             steps {
                 bat '''
@@ -51,7 +51,7 @@ pipeline {
             // requis par analyze_pipeline.py pour l'analyse IA et la génération PDF
             // Si weasyprint pose problème : retirez-le et ajoutez --no-pdf dans le stage AI Analysis
         }
- 
+
         stage('Lint - Flake8') {
             steps {
                 bat '''
@@ -59,7 +59,7 @@ pipeline {
                 '''
             }
         }
- 
+
         stage('Tests - Pytest') {
             steps {
                 bat '''
@@ -67,7 +67,7 @@ pipeline {
                 '''
             }
         }
- 
+
         stage('Security - Bandit') {
             steps {
                 bat '''
@@ -75,7 +75,7 @@ pipeline {
                 '''
             }
         }
- 
+
         stage('Security - pip-audit') {
             steps {
                 bat '''
@@ -83,7 +83,7 @@ pipeline {
                 '''
             }
         }
- 
+
         stage('Security - Gitleaks') {
             steps {
                 bat '''
@@ -91,7 +91,7 @@ pipeline {
                 '''
             }
         }
- 
+
         stage('Build Docker Image') {
             steps {
                 bat '''
@@ -99,7 +99,7 @@ pipeline {
                 '''
             }
         }
- 
+
         stage('Security - Trivy') {
             steps {
                 bat '''
@@ -107,7 +107,7 @@ pipeline {
                 '''
             }
         }
- 
+
         stage('Deploy Local Container') {
             steps {
                 bat '''
@@ -116,7 +116,7 @@ pipeline {
                 '''
             }
         }
- 
+
         stage('Wait for Application') {
             steps {
                 bat '''
@@ -124,7 +124,7 @@ pipeline {
                 '''
             }
         }
- 
+
         stage('Check Application Availability') {
             steps {
                 bat '''
@@ -132,7 +132,7 @@ pipeline {
                 '''
             }
         }
- 
+
         stage('DAST - OWASP ZAP') {
             steps {
                 bat '''
@@ -141,35 +141,52 @@ pipeline {
                 '''
             }
         }
- 
+
         // ─────────────────────────────────────────────────────────────────
-        // NOUVEAU stage — Analyse IA des logs avec Claude
-        // Place : après ZAP, avant le bloc post
+        // NOUVEAU stage — Analyse IA des logs avec Ollama (local, gratuit)
+        // Prérequis sur la machine Jenkins :
+        //   1. Ollama installé   : https://ollama.com/download
+        //   2. Modèle téléchargé : ollama pull mistral
+        //   3. Service démarré   : ollama serve  (ou service Windows installé)
         // Fichiers requis dans votre repo GitHub :
         //   - analyze_pipeline.py  (fourni)
         //   - email_config.json    (fourni — à personnaliser avec vos infos SMTP)
         // ─────────────────────────────────────────────────────────────────
-        stage('AI Analysis - Claude') {
+        stage('AI Analysis - Ollama') {
             steps {
+                // Vérifie qu'Ollama tourne (le démarre si configuré comme service Windows)
+                bat '''
+                powershell -Command "
+                  try {
+                    $r = Invoke-WebRequest -Uri http://localhost:11434/api/tags -UseBasicParsing -TimeoutSec 3
+                    Write-Host '✅ Ollama est démarré'
+                  } catch {
+                    Write-Host '⚠️  Ollama non détecté sur localhost:11434'
+                    Write-Host 'Démarrez Ollama manuellement : ollama serve'
+                  }
+                "
+                '''
+
                 script {
                     // Capture tous les logs du build courant
                     def logLines = currentBuild.rawBuild.getLog(50000)
                     writeFile file: 'pipeline.log', text: logLines.join('\n')
                 }
+
                 bat '''
                 if not exist reports mkdir reports
- 
+
                 %PYTHON% analyze_pipeline.py ^
                     --log pipeline.log ^
                     --output reports ^
+                    --model %OLLAMA_MODEL% ^
                     --email-config %EMAIL_CONFIG%
                 '''
-                // En cas de problème avec weasyprint (PDF) sur Windows, remplacez par :
-                // %PYTHON% analyze_pipeline.py --log pipeline.log --output reports --no-pdf --email-config %EMAIL_CONFIG%
+                // En cas de problème avec weasyprint (PDF), ajoutez : --no-pdf
             }
         }
     }
- 
+
     // ─────────────────────────────────────────────────────────────────────
     // post block — légèrement restructuré :
     //   1. archiveArtifacts inclut maintenant reports/**
@@ -198,7 +215,7 @@ pipeline {
                 keepAll              : true,
                 reportDir            : 'reports',
                 reportFiles          : 'report_*.html',
-                reportName           : '📊 Rapport IA CI/CD'
+                reportName           : '📊 Rapport IA CI/CD (Ollama)'
             ])
             cleanWs()
         }
