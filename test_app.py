@@ -40,4 +40,4 @@ def test_add_task_without_title():
             "/tasks",
             json={},
         )
-        assert response.status_code == 400    
+        assert response.status_code == 400
